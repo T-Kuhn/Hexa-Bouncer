@@ -194,7 +194,7 @@ namespace MachineSimulator.Sequencing
 
             // 1. Go up and down
             {
-                var upPosition = new Vector3(0f, 0.33f, 0f);
+                var upPosition = new Vector3(0f, 0.22f, 0f);
                 var upRotation = Quaternion.Euler(0f, 0f, 0f);
 
                 // From default to up

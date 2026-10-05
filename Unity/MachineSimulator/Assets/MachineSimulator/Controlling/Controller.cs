@@ -402,14 +402,14 @@ namespace MachineSimulator.Controlling
 
         private void OnDrawGizmos()
         {
-            if (_cameraOneTransform != null)
+            if (_cameraOneTransform != null && _cameraOneTransform.gameObject.activeSelf)
             {
                 DrawGizmoLineFor(_cameraOneTransform, Color.green, _cameraOneTransform.forward, 0.1f);
                 DrawGizmoLineFor(_cameraOneTransform, Color.yellow, _camOneDetectedBallDir, 0.1f);
                 DrawGizmoLineFor(_cameraOneTransform, Color.blue, _cameraOneTransform.up, 0.05f);
             }
 
-            if (_cameraTwoTransform != null)
+            if (_cameraTwoTransform != null&& _cameraTwoTransform.gameObject.activeSelf)
             {
                 DrawGizmoLineFor(_cameraTwoTransform, Color.green, _cameraTwoTransform.forward, 0.1f);
                 DrawGizmoLineFor(_cameraTwoTransform, Color.yellow, _camTwoDetectedBallDir, 0.1f);

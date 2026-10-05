@@ -7274,6 +7274,7 @@ GameObject:
   m_Component:
   - component: {fileID: 9112345484864055551}
   - component: {fileID: 9112345484864055550}
+  - component: {fileID: 9112345484864999001}
   m_Layer: 0
   m_Name: Arm v0.4 Left
   m_TagString: Untagged
@@ -7321,6 +7322,10 @@ MonoBehaviour:
   _useSecondSolution: 0
   _showDebugLog: 0
   _showDebugGizmos: 1
+  _showLink1CircleViz: 1
+  _showLink2SphereViz: 1
+  _showIntersectionCircleViz: 1
+  _showIntersectionPointViz: 1
   _finalJointOffset: 0.08
 --- !u!1 &9112345484979999438
 GameObject:
@@ -7521,3 +7526,19 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &9112345484864999001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9112345484864055537}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 285f795f613b4dd9bed81bb54d4c2168, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _link1CircleMaterial: {fileID: 2100000, guid: 11065395f2a047f6b0ea832745f3e1fb, type: 2}
+  _intersectionCircleMaterial: {fileID: 2100000, guid: 7b874aa7dcbf4ce1bda16408e539e9ed, type: 2}
+  _sphereMaterial: {fileID: 2100000, guid: 8a5340ed965947068a3e5676c1f466a6, type: 2}
+  _quadMargin: 0.05
