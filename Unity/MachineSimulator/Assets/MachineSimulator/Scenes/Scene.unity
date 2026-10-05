@@ -7466,7 +7466,7 @@ PrefabInstance:
     - target: {fileID: 4993955093609605196, guid: c4433f173ee007f44bc6039a58de0d40, type: 3}
       propertyPath: _hexaPlatePrefab
       value: 
-      objectReference: {fileID: 6417198117097266501, guid: 9ad17aafb0d60fb4698540705426344d, type: 3}
+      objectReference: {fileID: 6398719974125399676, guid: 26ed9cc647b3c084aa6b3411e94922be, type: 3}
     - target: {fileID: 4993955093609605196, guid: c4433f173ee007f44bc6039a58de0d40, type: 3}
       propertyPath: _singleArmPrefab
       value: 
