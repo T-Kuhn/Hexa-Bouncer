@@ -6,6 +6,7 @@ using Cysharp.Threading.Tasks;
 using MachineSimulator.ImageProcessing;
 using MachineSimulator.Machine;
 using MachineSimulator.Sequencing;
+using MachineSimulator.UVCCamera;
 using UnityEngine;
 
 namespace MachineSimulator.Controlling
@@ -35,6 +36,17 @@ namespace MachineSimulator.Controlling
         [SerializeField] private Transform _planeTwoOrigin;
 
         [SerializeField] private Transform _ballVisualization;
+
+        // NOTE: Optional debug visualization: quads that show each camera's stream on its image plane, placed in
+        //       front of the camera transforms injected below (see CameraImagePlaneView).
+        [SerializeField] private CameraImagePlaneView _cameraOneImagePlane;
+        [SerializeField] private CameraImagePlaneView _cameraTwoImagePlane;
+
+        // NOTE: Converter.ConvertToAngle treats the viewing angle as linear in the pixel offset. The pinhole model
+        //       (tan(angle) linear in the pixel offset) is what a rectilinear lens does and what the image plane
+        //       quads are built on. Off by default so the tracking behaviour stays as it was; when on, the yellow
+        //       gizmo rays pierce the image plane quads exactly at the ball image.
+        [SerializeField] private bool _usePinholeProjection;
 
         private Vector3? _ballPosition;
         private float _lastTimestamp;
@@ -276,6 +288,9 @@ namespace MachineSimulator.Controlling
         {
             _cameraOneTransform = cameraOneTransform;
             _cameraTwoTransform = cameraTwoTransform;
+
+            if (_cameraOneImagePlane != null) _cameraOneImagePlane.InjectRefs(cameraOneTransform);
+            if (_cameraTwoImagePlane != null) _cameraTwoImagePlane.InjectRefs(cameraTwoTransform);
         }
 
         private bool _isLogging;
@@ -338,6 +353,11 @@ namespace MachineSimulator.Controlling
 
         private Vector3 CalculateDetectedBallDirection(Transform cameraTransform, Vector2 ballPosition)
         {
+            if (_usePinholeProjection)
+            {
+                return cameraTransform.rotation * Converter.ConvertToViewDirection(ballPosition);
+            }
+
             var (horizontal, vertical) = Converter.ConvertToAngle(ballPosition);
             var rotation = cameraTransform.rotation * Quaternion.Euler(vertical, horizontal, 0f);
             return rotation * Vector3.forward;
@@ -405,16 +425,28 @@ namespace MachineSimulator.Controlling
             if (_cameraOneTransform != null && _cameraOneTransform.gameObject.activeSelf)
             {
                 DrawGizmoLineFor(_cameraOneTransform, Color.green, _cameraOneTransform.forward, 0.1f);
-                DrawGizmoLineFor(_cameraOneTransform, Color.yellow, _camOneDetectedBallDir, 0.1f);
+                DrawGizmoLineFor(_cameraOneTransform, Color.yellow, _camOneDetectedBallDir, BallRayGizmoLength(_cameraOneTransform, _camOneDetectedBallDir, _cameraOneImagePlane));
                 DrawGizmoLineFor(_cameraOneTransform, Color.blue, _cameraOneTransform.up, 0.05f);
             }
 
             if (_cameraTwoTransform != null&& _cameraTwoTransform.gameObject.activeSelf)
             {
                 DrawGizmoLineFor(_cameraTwoTransform, Color.green, _cameraTwoTransform.forward, 0.1f);
-                DrawGizmoLineFor(_cameraTwoTransform, Color.yellow, _camTwoDetectedBallDir, 0.1f);
+                DrawGizmoLineFor(_cameraTwoTransform, Color.yellow, _camTwoDetectedBallDir, BallRayGizmoLength(_cameraTwoTransform, _camTwoDetectedBallDir, _cameraTwoImagePlane));
                 DrawGizmoLineFor(_cameraTwoTransform, Color.blue, _cameraTwoTransform.up, 0.05f);
             }
+        }
+
+        // NOTE: When an image plane quad is shown, the ball ray is drawn exactly up to that plane (which is
+        //       perpendicular to the camera's forward axis), so the tip of the line sits on the quad - on the ball
+        //       image if detection and ray math agree. Without a quad the historical 0.1m is kept.
+        private static float BallRayGizmoLength(Transform camTransform, Vector3 ballDirection, CameraImagePlaneView imagePlane)
+        {
+            const float defaultLength = 0.1f;
+            if (imagePlane == null || !imagePlane.IsVisible) return defaultLength;
+
+            var depthAlongForward = Vector3.Dot(ballDirection, camTransform.forward);
+            return depthAlongForward > 0.01f ? imagePlane.DistanceFromCamera / depthAlongForward : defaultLength;
         }
 
         private void DrawGizmoLineFor(Transform camTransform, Color color, Vector3 direction, float length)
