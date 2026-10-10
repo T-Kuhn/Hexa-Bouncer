@@ -14,8 +14,9 @@ namespace MachineSimulator.UVCCamera
     //       pierces the quad right at the ball image. With the legacy linear-angle model (Converter.ConvertToAngle)
     //       this holds exactly only at the image centre and borders; with Controller's pinhole projection toggle
     //       it holds everywhere.
-    //       Optionally also draws the camera's frustum: the four walls from the camera origin out to the image
-    //       plane (no near/far plane), which can be grown from 0 FOV to the real FOV for recordings.
+    //       Optionally also draws the camera's frustum out to the image plane (no near/far plane): its four walls
+    //       as a transparent mesh and/or its edges as gizmo lines, which can be grown from 0 FOV to the real FOV
+    //       for recordings.
     public sealed class CameraImagePlaneView : MonoBehaviour
     {
         private const string ShaderName = "MachineSimulator/CameraImagePlane";
@@ -28,17 +29,21 @@ namespace MachineSimulator.UVCCamera
         [SerializeField, Min(0.001f)] private float _distanceFromCamera = 0.1f;
 
         // NOTE: The frustum is independent of the quad: it only needs the camera pose, not a camera stream, so it
-        //       also renders while the image plane is off or the camera is not running.
-        [SerializeField] private bool _showCameraFrustum;
-        [SerializeField] private Color _frustumColor = new Color(1f, 1f, 1f, 0.3f);
+        //       also renders while the image plane is off or the camera is not running. Walls (transparent mesh)
+        //       and edges (gizmo lines: Scene view, or Game view with gizmos on) are toggled separately.
+        [SerializeField] private bool _showFrustumWalls;
+        [SerializeField] private Color _frustumWallColor = new Color(1f, 1f, 1f, 0.3f);
+        [SerializeField] private bool _showFrustumEdges;
+        [SerializeField] private Color _frustumEdgeColor = Color.white;
         // NOTE: Multiply the FOV constants for the frustum only. At 1 the walls end exactly at the quad's edges;
         //       the grow animation below drives both from 0 to 1.
         [SerializeField, Min(0f)] private float _frustumHorizontalFovMultiplier = 1f;
         [SerializeField, Min(0f)] private float _frustumVerticalFovMultiplier = 1f;
-        // NOTE: Tick during play mode (like the SingleArmMover animation toggles): the frustum is switched on and
-        //       grows from 0 FOV to the real FOV in _frustumGrowAnimationTime seconds, following _frustumGrowCurve
-        //       (x: normalised time, y: multiplier). The toggle switches itself off once the animation is done;
-        //       unticking it earlier stops the animation at the multipliers it has reached.
+        // NOTE: Tick during play mode (like the SingleArmMover animation toggles): the frustum grows from 0 FOV to
+        //       the real FOV in _frustumGrowAnimationTime seconds, following _frustumGrowCurve (x: normalised time,
+        //       y: multiplier). Walls and edges both follow; if neither is shown, the walls get switched on. The
+        //       toggle switches itself off once the animation is done; unticking it earlier stops the animation at
+        //       the multipliers it has reached.
         [SerializeField] private bool _playFrustumGrowAnimation;
         [SerializeField, Min(0.01f)] private float _frustumGrowAnimationTime = 2f;
         [SerializeField] private AnimationCurve _frustumGrowCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
@@ -139,12 +144,12 @@ namespace MachineSimulator.UVCCamera
         {
             HandleFrustumGrowAnimation();
 
-            var canShow = _showCameraFrustum && _cameraTransform != null;
+            var canShow = _showFrustumWalls && _cameraTransform != null;
 
             _frustumRenderer.enabled = canShow;
             if (!canShow) return;
 
-            if (_frustumMaterial.color != _frustumColor) _frustumMaterial.color = _frustumColor;
+            if (_frustumMaterial.color != _frustumWallColor) _frustumMaterial.color = _frustumWallColor;
             if (!Mathf.Approximately(_appliedFrustumDistance, _distanceFromCamera)
                 || !Mathf.Approximately(_appliedFrustumHorizontalFovMultiplier, _frustumHorizontalFovMultiplier)
                 || !Mathf.Approximately(_appliedFrustumVerticalFovMultiplier, _frustumVerticalFovMultiplier))
@@ -167,7 +172,7 @@ namespace MachineSimulator.UVCCamera
                 if (_isGrowAnimationRunning)
                 {
                     _growAnimationTime = 0f;
-                    _showCameraFrustum = true;
+                    if (!_showFrustumWalls && !_showFrustumEdges) _showFrustumWalls = true;
                 }
             }
 
@@ -233,36 +238,63 @@ namespace MachineSimulator.UVCCamera
             _appliedDistance = _distanceFromCamera;
         }
 
-        // NOTE: Apex at the camera origin, far corners where the image plane's corners sit for the (multiplied)
-        //       fields of view: the same distance * tan(fov / 2) pinhole mapping as Converter.ConvertToImagePlanePoint,
-        //       so with both multipliers at 1 the walls end exactly at the quad's edges. Camera space: x (right)
-        //       spans the horizontal FOV, y (up) the vertical one. Vertex order: apex, then the corners by
-        //       (right, up) sign: (-,-) (+,-) (-,+) (+,+).
+        // NOTE: Vertex order: apex at the camera origin, then the far corners in CalculateFrustumFarCorners' order.
         private void RebuildFrustumMesh()
         {
-            var distance = _distanceFromCamera;
-            var halfWidth = distance * TanHalfFov(c.CameraHorizontalFov * _frustumHorizontalFovMultiplier);
-            var halfHeight = distance * TanHalfFov(c.CameraVerticalFov * _frustumVerticalFovMultiplier);
-
-            var vertices = new[]
-            {
-                Vector3.zero,
-                new Vector3(-halfWidth, -halfHeight, distance),
-                new Vector3(halfWidth, -halfHeight, distance),
-                new Vector3(-halfWidth, halfHeight, distance),
-                new Vector3(halfWidth, halfHeight, distance),
-            };
+            var corners = CalculateFrustumFarCorners();
 
             _frustumMesh.Clear();
-            _frustumMesh.vertices = vertices;
+            _frustumMesh.vertices = new[] { Vector3.zero, corners[0], corners[1], corners[2], corners[3] };
             // NOTE: One triangle per wall (bottom, right, top, left), no near/far plane. All wound the same way
             //       around the forward axis; the shader is Cull Off anyway.
             _frustumMesh.triangles = new[] { 0, 1, 2, 0, 2, 4, 0, 4, 3, 0, 3, 1 };
             _frustumMesh.RecalculateBounds();
 
-            _appliedFrustumDistance = distance;
+            _appliedFrustumDistance = _distanceFromCamera;
             _appliedFrustumHorizontalFovMultiplier = _frustumHorizontalFovMultiplier;
             _appliedFrustumVerticalFovMultiplier = _frustumVerticalFovMultiplier;
+        }
+
+        // NOTE: The edges are gizmos like the Controller's camera rays. They use the same corners as the walls, so
+        //       they follow the multipliers and the grow animation too: the four lateral edges from the camera
+        //       origin to the corners plus the four edges of the far rectangle (the image plane's border).
+        //       position + rotation * corner instead of TransformPoint on purpose: the camera dummies are scaled
+        //       (0.01), see CreateRootRenderer.
+        private void OnDrawGizmos()
+        {
+            if (!_showFrustumEdges || !enabled || _cameraTransform == null) return;
+
+            var apex = _cameraTransform.position;
+            var rotation = _cameraTransform.rotation;
+            var corners = CalculateFrustumFarCorners();
+            for (var i = 0; i < corners.Length; i++) corners[i] = apex + rotation * corners[i];
+
+            Gizmos.color = _frustumEdgeColor;
+            foreach (var corner in corners) Gizmos.DrawLine(apex, corner);
+            Gizmos.DrawLine(corners[0], corners[1]);
+            Gizmos.DrawLine(corners[1], corners[3]);
+            Gizmos.DrawLine(corners[3], corners[2]);
+            Gizmos.DrawLine(corners[2], corners[0]);
+        }
+
+        // NOTE: Camera-space corners of the frustum's far end, where the image plane's corners sit for the
+        //       (multiplied) fields of view: the same distance * tan(fov / 2) pinhole mapping as
+        //       Converter.ConvertToImagePlanePoint, so with both multipliers at 1 the frustum ends exactly at the
+        //       quad's edges. x (right) spans the horizontal FOV, y (up) the vertical one. Order by (right, up)
+        //       sign: (-,-) (+,-) (-,+) (+,+).
+        private Vector3[] CalculateFrustumFarCorners()
+        {
+            var distance = _distanceFromCamera;
+            var halfWidth = distance * TanHalfFov(c.CameraHorizontalFov * _frustumHorizontalFovMultiplier);
+            var halfHeight = distance * TanHalfFov(c.CameraVerticalFov * _frustumVerticalFovMultiplier);
+
+            return new[]
+            {
+                new Vector3(-halfWidth, -halfHeight, distance),
+                new Vector3(halfWidth, -halfHeight, distance),
+                new Vector3(-halfWidth, halfHeight, distance),
+                new Vector3(halfWidth, halfHeight, distance),
+            };
         }
 
         // NOTE: Clamped just below 180deg; a pinhole image plane only exists for fields of view below that
