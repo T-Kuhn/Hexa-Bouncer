@@ -14,15 +14,34 @@ namespace MachineSimulator.UVCCamera
     //       pierces the quad right at the ball image. With the legacy linear-angle model (Converter.ConvertToAngle)
     //       this holds exactly only at the image centre and borders; with Controller's pinhole projection toggle
     //       it holds everywhere.
+    //       Optionally also draws the camera's frustum: the four walls from the camera origin out to the image
+    //       plane (no near/far plane), which can be grown from 0 FOV to the real FOV for recordings.
     public sealed class CameraImagePlaneView : MonoBehaviour
     {
         private const string ShaderName = "MachineSimulator/CameraImagePlane";
+        private const string FrustumShaderName = "MachineSimulator/CameraFrustum";
 
         // NOTE: Optional; falls back to the UVCCameraPlugin on this GameObject or one of its parents.
         [SerializeField] private UVCCameraPlugin _camera;
         [SerializeField] private bool _showImagePlane = true;
-        // NOTE: Distance (m) of the image plane in front of the camera origin.
+        // NOTE: Distance (m) of the image plane in front of the camera origin. The frustum ends there as well.
         [SerializeField, Min(0.001f)] private float _distanceFromCamera = 0.1f;
+
+        // NOTE: The frustum is independent of the quad: it only needs the camera pose, not a camera stream, so it
+        //       also renders while the image plane is off or the camera is not running.
+        [SerializeField] private bool _showCameraFrustum;
+        [SerializeField] private Color _frustumColor = new Color(1f, 1f, 1f, 0.3f);
+        // NOTE: Multiply the FOV constants for the frustum only. At 1 the walls end exactly at the quad's edges;
+        //       the grow animation below drives both from 0 to 1.
+        [SerializeField, Min(0f)] private float _frustumHorizontalFovMultiplier = 1f;
+        [SerializeField, Min(0f)] private float _frustumVerticalFovMultiplier = 1f;
+        // NOTE: Tick during play mode (like the SingleArmMover animation toggles): the frustum is switched on and
+        //       grows from 0 FOV to the real FOV in _frustumGrowAnimationTime seconds, following _frustumGrowCurve
+        //       (x: normalised time, y: multiplier). The toggle switches itself off once the animation is done;
+        //       unticking it earlier stops the animation at the multipliers it has reached.
+        [SerializeField] private bool _playFrustumGrowAnimation;
+        [SerializeField, Min(0.01f)] private float _frustumGrowAnimationTime = 2f;
+        [SerializeField] private AnimationCurve _frustumGrowCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
 
         private Transform _cameraTransform;
         private Transform _quad;
@@ -30,6 +49,17 @@ namespace MachineSimulator.UVCCamera
         private Mesh _mesh;
         private Material _material;
         private float _appliedDistance = -1f;
+
+        private Transform _frustum;
+        private MeshRenderer _frustumRenderer;
+        private Mesh _frustumMesh;
+        private Material _frustumMaterial;
+        private float _appliedFrustumDistance = -1f;
+        private float _appliedFrustumHorizontalFovMultiplier = -1f;
+        private float _appliedFrustumVerticalFovMultiplier = -1f;
+
+        private bool _isGrowAnimationRunning;
+        private float _growAnimationTime;
 
         public float DistanceFromCamera => _distanceFromCamera;
         public bool IsVisible => _renderer != null && _renderer.enabled;
@@ -52,24 +82,44 @@ namespace MachineSimulator.UVCCamera
 
             _material = new Material(shader != null ? shader : Shader.Find("Unlit/Texture"));
             _mesh = new Mesh { name = "CameraImagePlane" };
+            _renderer = CreateRootRenderer(name + " ImagePlane", _mesh, _material);
+            _quad = _renderer.transform;
 
-            // NOTE: The quad lives at the scene root and follows the camera in world space instead of being
-            //       parented to it: the camera dummies in the Hexaplate prefab are scaled (0.01) and would
-            //       scale the quad as well.
-            var quadGameObject = new GameObject(name + " ImagePlane");
-            _quad = quadGameObject.transform;
-            quadGameObject.AddComponent<MeshFilter>().sharedMesh = _mesh;
+            var frustumShader = Shader.Find(FrustumShaderName);
+            if (frustumShader == null) Debug.LogError(name + ": shader '" + FrustumShaderName + "' not found.", this);
 
-            _renderer = quadGameObject.AddComponent<MeshRenderer>();
-            _renderer.sharedMaterial = _material;
-            _renderer.shadowCastingMode = ShadowCastingMode.Off;
-            _renderer.receiveShadows = false;
-            _renderer.lightProbeUsage = LightProbeUsage.Off;
-            _renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
-            _renderer.enabled = false;
+            // NOTE: Sprites/Default as the fallback because it is alpha blended and two-sided as well.
+            _frustumMaterial = new Material(frustumShader != null ? frustumShader : Shader.Find("Sprites/Default"));
+            _frustumMesh = new Mesh { name = "CameraFrustum" };
+            _frustumRenderer = CreateRootRenderer(name + " Frustum", _frustumMesh, _frustumMaterial);
+            _frustum = _frustumRenderer.transform;
+        }
+
+        // NOTE: The quad and the frustum live at the scene root and follow the camera in world space instead of
+        //       being parented to it: the camera dummies in the Hexaplate prefab are scaled (0.01) and would
+        //       scale them as well.
+        private static MeshRenderer CreateRootRenderer(string objectName, Mesh mesh, Material material)
+        {
+            var rendererObject = new GameObject(objectName);
+            rendererObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+
+            var meshRenderer = rendererObject.AddComponent<MeshRenderer>();
+            meshRenderer.sharedMaterial = material;
+            meshRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            meshRenderer.receiveShadows = false;
+            meshRenderer.lightProbeUsage = LightProbeUsage.Off;
+            meshRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            meshRenderer.enabled = false;
+            return meshRenderer;
         }
 
         private void LateUpdate()
+        {
+            UpdateImagePlane();
+            UpdateFrustum();
+        }
+
+        private void UpdateImagePlane()
         {
             var texture = _camera != null && _camera.CameraIsInitialized ? _camera.Texture : null;
             var canShow = _showImagePlane && _cameraTransform != null && texture != null;
@@ -85,9 +135,63 @@ namespace MachineSimulator.UVCCamera
             _quad.SetPositionAndRotation(_cameraTransform.position, _cameraTransform.rotation);
         }
 
+        private void UpdateFrustum()
+        {
+            HandleFrustumGrowAnimation();
+
+            var canShow = _showCameraFrustum && _cameraTransform != null;
+
+            _frustumRenderer.enabled = canShow;
+            if (!canShow) return;
+
+            if (_frustumMaterial.color != _frustumColor) _frustumMaterial.color = _frustumColor;
+            if (!Mathf.Approximately(_appliedFrustumDistance, _distanceFromCamera)
+                || !Mathf.Approximately(_appliedFrustumHorizontalFovMultiplier, _frustumHorizontalFovMultiplier)
+                || !Mathf.Approximately(_appliedFrustumVerticalFovMultiplier, _frustumVerticalFovMultiplier))
+            {
+                RebuildFrustumMesh();
+            }
+
+            // NOTE: Same as the quad: the apex is the mesh origin, so the transform just takes over the camera pose.
+            _frustum.SetPositionAndRotation(_cameraTransform.position, _cameraTransform.rotation);
+        }
+
+        // NOTE: Drives both FOV multipliers along the curve; the first frame sits at curve(0) (0 FOV), the last
+        //       frame exactly at curve(1) (the full FOV with the default ease-in/out curve).
+        private void HandleFrustumGrowAnimation()
+        {
+            if (_playFrustumGrowAnimation != _isGrowAnimationRunning)
+            {
+                _isGrowAnimationRunning = _playFrustumGrowAnimation;
+
+                if (_isGrowAnimationRunning)
+                {
+                    _growAnimationTime = 0f;
+                    _showCameraFrustum = true;
+                }
+            }
+
+            if (!_isGrowAnimationRunning) return;
+
+            var progress = Mathf.Clamp01(_growAnimationTime / _frustumGrowAnimationTime);
+            var multiplier = Mathf.Max(0f, _frustumGrowCurve.Evaluate(progress));
+            _frustumHorizontalFovMultiplier = multiplier;
+            _frustumVerticalFovMultiplier = multiplier;
+
+            if (progress >= 1f)
+            {
+                _isGrowAnimationRunning = false;
+                _playFrustumGrowAnimation = false;
+                return;
+            }
+
+            _growAnimationTime += Time.deltaTime;
+        }
+
         private void OnDisable()
         {
             if (_renderer != null) _renderer.enabled = false;
+            if (_frustumRenderer != null) _frustumRenderer.enabled = false;
         }
 
         private void OnDestroy()
@@ -95,6 +199,10 @@ namespace MachineSimulator.UVCCamera
             if (_quad != null) Destroy(_quad.gameObject);
             if (_mesh != null) Destroy(_mesh);
             if (_material != null) Destroy(_material);
+
+            if (_frustum != null) Destroy(_frustum.gameObject);
+            if (_frustumMesh != null) Destroy(_frustumMesh);
+            if (_frustumMaterial != null) Destroy(_frustumMaterial);
         }
 
         // NOTE: Each corner of the texture is placed where the viewing ray of that image corner pierces the
@@ -123,6 +231,45 @@ namespace MachineSimulator.UVCCamera
             _mesh.RecalculateBounds();
 
             _appliedDistance = _distanceFromCamera;
+        }
+
+        // NOTE: Apex at the camera origin, far corners where the image plane's corners sit for the (multiplied)
+        //       fields of view: the same distance * tan(fov / 2) pinhole mapping as Converter.ConvertToImagePlanePoint,
+        //       so with both multipliers at 1 the walls end exactly at the quad's edges. Camera space: x (right)
+        //       spans the horizontal FOV, y (up) the vertical one. Vertex order: apex, then the corners by
+        //       (right, up) sign: (-,-) (+,-) (-,+) (+,+).
+        private void RebuildFrustumMesh()
+        {
+            var distance = _distanceFromCamera;
+            var halfWidth = distance * TanHalfFov(c.CameraHorizontalFov * _frustumHorizontalFovMultiplier);
+            var halfHeight = distance * TanHalfFov(c.CameraVerticalFov * _frustumVerticalFovMultiplier);
+
+            var vertices = new[]
+            {
+                Vector3.zero,
+                new Vector3(-halfWidth, -halfHeight, distance),
+                new Vector3(halfWidth, -halfHeight, distance),
+                new Vector3(-halfWidth, halfHeight, distance),
+                new Vector3(halfWidth, halfHeight, distance),
+            };
+
+            _frustumMesh.Clear();
+            _frustumMesh.vertices = vertices;
+            // NOTE: One triangle per wall (bottom, right, top, left), no near/far plane. All wound the same way
+            //       around the forward axis; the shader is Cull Off anyway.
+            _frustumMesh.triangles = new[] { 0, 1, 2, 0, 2, 4, 0, 4, 3, 0, 3, 1 };
+            _frustumMesh.RecalculateBounds();
+
+            _appliedFrustumDistance = distance;
+            _appliedFrustumHorizontalFovMultiplier = _frustumHorizontalFovMultiplier;
+            _appliedFrustumVerticalFovMultiplier = _frustumVerticalFovMultiplier;
+        }
+
+        // NOTE: Clamped just below 180deg; a pinhole image plane only exists for fields of view below that
+        //       (multipliers above ~3.4 horizontally / ~1.9 vertically would otherwise blow the mesh up).
+        private static float TanHalfFov(float fovDegrees)
+        {
+            return Mathf.Tan(Mathf.Clamp(fovDegrees, 0f, 179f) / 2f * Mathf.Deg2Rad);
         }
 
         // NOTE: Inverse of how BallDetection reports positions (PositionX = width / 2 - column,

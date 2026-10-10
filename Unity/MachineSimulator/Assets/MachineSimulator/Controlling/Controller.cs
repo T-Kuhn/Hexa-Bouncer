@@ -48,6 +48,13 @@ namespace MachineSimulator.Controlling
         //       gizmo rays pierce the image plane quads exactly at the ball image.
         [SerializeField] private bool _usePinholeProjection;
 
+        // NOTE: Debug visualization: the yellow ball-direction gizmo rays are 0.1m long by default and end on the
+        //       image plane quads while those are shown (see BallRayGizmoLength). Tick the override to draw both
+        //       cameras' rays with the given length (m, measured along the ray) instead, e.g. to reach past the
+        //       image plane up to the ball for a recording.
+        [SerializeField] private bool _overrideBallRayGizmoLength;
+        [SerializeField, Min(0f)] private float _ballRayGizmoLengthOverride = 0.1f;
+
         private Vector3? _ballPosition;
         private float _lastTimestamp;
 
@@ -437,12 +444,14 @@ namespace MachineSimulator.Controlling
             }
         }
 
-        // NOTE: When an image plane quad is shown, the ball ray is drawn exactly up to that plane (which is
-        //       perpendicular to the camera's forward axis), so the tip of the line sits on the quad - on the ball
-        //       image if detection and ray math agree. Without a quad the historical 0.1m is kept.
-        private static float BallRayGizmoLength(Transform camTransform, Vector3 ballDirection, CameraImagePlaneView imagePlane)
+        // NOTE: With the override on, both rays simply get _ballRayGizmoLengthOverride. Otherwise, when an image
+        //       plane quad is shown, the ball ray is drawn exactly up to that plane (which is perpendicular to the
+        //       camera's forward axis), so the tip of the line sits on the quad - on the ball image if detection
+        //       and ray math agree. Without a quad the historical 0.1m is kept.
+        private float BallRayGizmoLength(Transform camTransform, Vector3 ballDirection, CameraImagePlaneView imagePlane)
         {
             const float defaultLength = 0.1f;
+            if (_overrideBallRayGizmoLength) return _ballRayGizmoLengthOverride;
             if (imagePlane == null || !imagePlane.IsVisible) return defaultLength;
 
             var depthAlongForward = Vector3.Dot(ballDirection, camTransform.forward);
