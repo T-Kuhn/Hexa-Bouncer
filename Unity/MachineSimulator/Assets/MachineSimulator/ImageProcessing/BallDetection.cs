@@ -117,15 +117,15 @@ namespace Unity.MachineSimulator.ImageProcessing
         // NOTE: BGR pixels
         public List<BallRadiusAndPosition> BallDataFromPixelBoarders(byte[] pixels, int startWidthPixel)
         {
-            // NOTE: Draw green line to show where the valid area for image processing starts
+            // NOTE: Draw red line to show where the valid area for image processing starts
             if (startWidthPixel >= 0 && startWidthPixel < c.CameraResolutionWidth)
             {
                 for (var height = 0; height < c.CameraResolutionHeight; height++)
                 {
                     var index = (height * c.CameraResolutionWidth + startWidthPixel) * 3;
                     pixels[index] = 0;     // B
-                    pixels[index + 1] = 255; // G
-                    pixels[index + 2] = 0;   // R
+                    pixels[index + 1] = 0; // G
+                    pixels[index + 2] = 255;   // R
                 }
             }
 
@@ -188,17 +188,17 @@ namespace Unity.MachineSimulator.ImageProcessing
                 var lastProbePositionRelativeToCurrentPixel = Vector2Int.left;
                 if (currentPixel.IsInBounds())
                 {
-                    pixels[currentPixel.GetBGRIndex() + 2] = 255;
+                    pixels[currentPixel.GetBGRIndex() + 1] = 255;
                 }
 
                 _boarderPixelPositions.Clear();
 
                 while (true)
                 {
-                    bool foundPixel = false;
+                    var foundPixel = false;
                     var cyclePattern = RotationPatternFromLastProbe(lastProbePositionRelativeToCurrentPixel);
 
-                    for (int i = 0; i < 8; i++)
+                    for (var i = 0; i < 8; i++)
                     {
                         var pos = currentPixel + cyclePattern[i];
                         if (pos.IsInBounds())
@@ -210,7 +210,7 @@ namespace Unity.MachineSimulator.ImageProcessing
                                 lastProbePositionRelativeToCurrentPixel = cyclePattern[i - 1] - cyclePattern[i];
 
                                 currentPixel = pos;
-                                pixels[idx + 2] = 255;
+                                pixels[idx + 1] = 255;
                                 _boarderPixelPositions.Add(currentPixel);
 
                                 foundPixel = true;
@@ -231,7 +231,7 @@ namespace Unity.MachineSimulator.ImageProcessing
 
                         var dataPoints = new List<(Vector2Int center, float radius)>();
                         var numberOfIterations = 50;
-                        for (int i = 0; i < numberOfIterations; i++)
+                        for (var i = 0; i < numberOfIterations; i++)
                         {
                             dataPoints.Add(CalculateCenterAndRadius(
                                 (int) ((_boarderPixelPositions.Count * i) / (float) numberOfIterations),
@@ -275,7 +275,7 @@ namespace Unity.MachineSimulator.ImageProcessing
                     var pos = data.center + Vector2Int.right * i;
                     if (pos.IsInBounds())
                     {
-                        pixels[pos.GetBGRIndex() + 2] = 255;
+                        pixels[pos.GetBGRIndex() + 1] = 255;
                     }
                 }
             }
@@ -292,8 +292,8 @@ namespace Unity.MachineSimulator.ImageProcessing
         private (Vector2Int center, float radius) CalculateCenterAndRadius(int atIndex, List<Vector2Int> boarderPixels)
         {
             var position = boarderPixels[atIndex];
-            Vector2Int maxDistBoarderPixel = new Vector2Int(0, 0);
-            float maxDistance = 0f;
+            var maxDistBoarderPixel = new Vector2Int(0, 0);
+            var maxDistance = 0f;
             foreach (var boarderPixel in boarderPixels)
             {
                 var distance = Vector2Int.Distance(position, boarderPixel);
@@ -302,7 +302,6 @@ namespace Unity.MachineSimulator.ImageProcessing
                     maxDistance = distance;
                     maxDistBoarderPixel = boarderPixel;
                 }
-
             }
 
             var center = new Vector2Int(
