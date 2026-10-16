@@ -189,7 +189,8 @@ namespace MachineSimulator.UVCCamera
 
                     if (filteredResults.Count > 0)
                     {
-                        var ball = res[0];
+                        // NOTE: Take the biggest object that passed the radius filter, not the biggest overall.
+                        var ball = filteredResults[0];
                         NewestBallPosition = new Vector2(ball.PositionX, ball.PositionY);
                         TimeStamp = Time.realtimeSinceStartup;
                         IsBallDetected = true;

@@ -10,6 +10,8 @@ namespace Unity.MachineSimulator.ImageProcessing
         private List<Vector2Int> _positiveProbePoints;
         private List<Vector2Int> _boarderPixelPositions;
         private List<(Vector2Int center, float radius)> _detectedObjects;
+        // NOTE: Debug overlay writes recorded during detection and painted afterwards, see BallDataFromPixelBoarders.
+        private List<(int index, byte value)> _deferredDebugWrites;
 
         private Vector2Int[] _cyclePattern1 = new Vector2Int[]
         {
@@ -112,41 +114,55 @@ namespace Unity.MachineSimulator.ImageProcessing
             _positiveProbePoints = new List<Vector2Int>(200);
             _boarderPixelPositions = new List<Vector2Int>(20000);
             _detectedObjects = new List<(Vector2Int center, float radius)>();
+            _deferredDebugWrites = new List<(int index, byte value)>(20000);
+        }
+
+        // NOTE: BGR bytes. Our ball is orange. Measured on the ball: bright spot R255 G112 B72,
+        //       dark spot R109 G22 B16, white-ish highlights never exceed B 130. Over that whole
+        //       brightness range orange keeps B/R <= ~0.5 and G/R <= ~0.8, while white/grey wall
+        //       pixels have B ~ G ~ R. The ratios are what separate ball from wall; the absolute
+        //       bounds just cut off dark background and the brightest neutral pixels.
+        //       There is no lower bound on green, so pure red passes too (the dark orange spot is
+        //       nearly red, a green minimum would eat the ball's shadow side). The red start line is
+        //       the only red in the frame and is drawn after detection for that reason.
+        private static bool IsBallPixel(byte[] pixels, int bgrIndex)
+        {
+            int b = pixels[bgrIndex];
+            int g = pixels[bgrIndex + 1];
+            int r = pixels[bgrIndex + 2];
+            return r >= c.BallMinRed
+                   && b <= c.BallMaxBlue
+                   && b * 100 <= r * c.BallMaxBluePercentOfRed
+                   && g * 100 <= r * c.BallMaxGreenPercentOfRed;
         }
 
         // NOTE: BGR pixels
+        // NOTE: Detection has to read an untouched frame: IsBallPixel looks at all three channels, so a
+        //       debug mark painted into a pixel during detection would change later checks on that pixel
+        //       (e.g. a green-marked probe pixel inside the ball would read as background when the walk to
+        //       the boarder crosses it). All debug writes are therefore recorded in _deferredDebugWrites
+        //       and painted once detection is done.
         public List<BallRadiusAndPosition> BallDataFromPixelBoarders(byte[] pixels, int startWidthPixel)
         {
-            // NOTE: Draw red line to show where the valid area for image processing starts
-            if (startWidthPixel >= 0 && startWidthPixel < c.CameraResolutionWidth)
-            {
-                for (var height = 0; height < c.CameraResolutionHeight; height++)
-                {
-                    var index = (height * c.CameraResolutionWidth + startWidthPixel) * 3;
-                    pixels[index] = 0;     // B
-                    pixels[index + 1] = 0; // G
-                    pixels[index + 2] = 255;   // R
-                }
-            }
-
             _positiveProbePoints.Clear();
+            _deferredDebugWrites.Clear();
 
-            // we are trying to find the boarders of all r == 255 pixel clusters.
+            // we are trying to find the boarders of all orange (ball) pixel clusters.
             for (var height = 0; height < c.CameraResolutionHeight; height += c.PixelSpacing)
             {
                 for (var width = startWidthPixel; width < c.CameraResolutionWidth; width += c.PixelSpacing)
                 {
                     var index = (height * c.CameraResolutionWidth + width) * 3;
 
-                    if (pixels[index] > c.Threshold)
+                    if (IsBallPixel(pixels, index))
                     {
-                        pixels[index + 1] = 255;
+                        _deferredDebugWrites.Add((index + 1, 255));
                         // we found a ball-pixel
                         _positiveProbePoints.Add(new Vector2Int(width, height));
                     }
                     else
                     {
-                        pixels[index + 1] = 0;
+                        _deferredDebugWrites.Add((index + 1, 0));
                     }
                 }
             }
@@ -177,7 +193,7 @@ namespace Unity.MachineSimulator.ImageProcessing
                     var pos = probe + Vector2Int.right * offset;
                     if (!pos.IsInBounds()) break;
                     var idx = pos.GetBGRIndex();
-                    if (pixels[idx] <= c.Threshold) break;
+                    if (!IsBallPixel(pixels, idx)) break;
                     offset--;
                 }
 
@@ -188,7 +204,7 @@ namespace Unity.MachineSimulator.ImageProcessing
                 var lastProbePositionRelativeToCurrentPixel = Vector2Int.left;
                 if (currentPixel.IsInBounds())
                 {
-                    pixels[currentPixel.GetBGRIndex() + 1] = 255;
+                    _deferredDebugWrites.Add((currentPixel.GetBGRIndex() + 1, 255));
                 }
 
                 _boarderPixelPositions.Clear();
@@ -204,20 +220,13 @@ namespace Unity.MachineSimulator.ImageProcessing
                         if (pos.IsInBounds())
                         {
                             var idx = pos.GetBGRIndex();
-                            // NOTE: BGR. Our ball is orange.
-                            //       - bright orange spot on ball: R: 255, G: 112, B: 72
-                            //       - dark orange spot on ball:   R: 109, G: 22, B: 16
-                            //       - even at white-ish spots on ball blue is never bigger than 130
-                            //       So our condition is that the pixels are close to that orange value
-                            // TODO: Above new condition is not implemented yet. Implement and change all
-                            //       occurances of old pixel threshold checking to new condition.
-                            if (pixels[idx] > c.Threshold)
+                            if (IsBallPixel(pixels, idx))
                             {
                                 // we found a new foreground pixel!
                                 lastProbePositionRelativeToCurrentPixel = cyclePattern[i - 1] - cyclePattern[i];
 
                                 currentPixel = pos;
-                                pixels[idx + 1] = 255;
+                                _deferredDebugWrites.Add((idx + 1, 255));
                                 _boarderPixelPositions.Add(currentPixel);
 
                                 foundPixel = true;
@@ -274,6 +283,26 @@ namespace Unity.MachineSimulator.ImageProcessing
                 .OrderByDescending(data => data.radius)
                 .Take(3)
                 .ToList();
+
+            // NOTE: Detection is done, from here on we only paint the debug overlay.
+            // NOTE: Draw red line to show where the valid area for image processing starts. Drawn after
+            //       detection because pure red passes IsBallPixel and the probe scan starts in this column.
+            if (startWidthPixel >= 0 && startWidthPixel < c.CameraResolutionWidth)
+            {
+                for (var height = 0; height < c.CameraResolutionHeight; height++)
+                {
+                    var index = (height * c.CameraResolutionWidth + startWidthPixel) * 3;
+                    pixels[index] = 0;       // B
+                    pixels[index + 1] = 0;   // G
+                    pixels[index + 2] = 255; // R
+                }
+            }
+
+            // NOTE: probe hits/misses and traced boarders (green channel)
+            foreach (var write in _deferredDebugWrites)
+            {
+                pixels[write.index] = write.value;
+            }
 
             foreach (var data in sortedData)
             {
@@ -360,27 +389,27 @@ namespace Unity.MachineSimulator.ImageProcessing
 
         public BallRadiusAndPosition BallDataFromArea(byte[] pixels, int startWidthPixel)
         {
-            int numberOfWhitePixels = 0;
+            int numberOfBallPixels = 0;
             var pixelWidth = c.CameraResolutionWidth;
             var accumulatedPixelX = 0;
             var accumulatedPixelY = 0;
 
-            // 1. We are using the red channel to first create our black-and-white base data
+            // 1. We are using the orange colour gate (IsBallPixel) to first create our black-and-white base data
             //    0: background
             //    1: foreground
+            //    The gate reads all three channels, so a pixel is classified before anything is painted into it.
             for (int i = 0; i < pixels.Length / 3; i++)
             {
                 var x = i % pixelWidth;
                 if (x < startWidthPixel) continue;
 
                 var idx = i * 3;
-                pixels[idx] = 0; // Blue
 
-                if (pixels[idx + 2] > 70) // Red channel
+                if (IsBallPixel(pixels, idx))
                 {
                     accumulatedPixelX += i % pixelWidth;
                     accumulatedPixelY += i / pixelWidth;
-                    numberOfWhitePixels++;
+                    numberOfBallPixels++;
                     pixels[idx + 2] = 255; // Red
                     pixels[idx + 1] = 100; // Green
                     pixels[idx] = 0;       // Blue
@@ -393,8 +422,8 @@ namespace Unity.MachineSimulator.ImageProcessing
                 }
             }
 
-            var meanPixelX = (float) accumulatedPixelX / numberOfWhitePixels;
-            var meanPixelY = (float) accumulatedPixelY / numberOfWhitePixels;
+            var meanPixelX = (float) accumulatedPixelX / numberOfBallPixels;
+            var meanPixelY = (float) accumulatedPixelY / numberOfBallPixels;
 
             /*
             // color pixel at ball centre white
@@ -405,7 +434,7 @@ namespace Unity.MachineSimulator.ImageProcessing
             */
 
             // NOTE: use number of pixels and A_c = r^2 * PI to get the radius (r) of the ball
-            var pixelRadius = Mathf.Sqrt(numberOfWhitePixels / Mathf.PI);
+            var pixelRadius = Mathf.Sqrt(numberOfBallPixels / Mathf.PI);
 
             return new BallRadiusAndPosition()
             {
