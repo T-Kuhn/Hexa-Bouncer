@@ -204,6 +204,13 @@ namespace Unity.MachineSimulator.ImageProcessing
                         if (pos.IsInBounds())
                         {
                             var idx = pos.GetBGRIndex();
+                            // NOTE: BGR. Our ball is orange.
+                            //       - bright orange spot on ball: R: 255, G: 112, B: 72
+                            //       - dark orange spot on ball:   R: 109, G: 22, B: 16
+                            //       - even at white-ish spots on ball blue is never bigger than 130
+                            //       So our condition is that the pixels are close to that orange value
+                            // TODO: Above new condition is not implemented yet. Implement and change all
+                            //       occurances of old pixel threshold checking to new condition.
                             if (pixels[idx] > c.Threshold)
                             {
                                 // we found a new foreground pixel!
