@@ -10,7 +10,7 @@ namespace MachineSimulator.UVCCamera
         // NOTE: Keeps the candidate readout below live while playing.
         public override bool RequiresConstantRepaint()
         {
-            return Application.isPlaying;
+            return UnityEngine.Application.isPlaying;
         }
 
         public override void OnInspectorGUI()
@@ -28,7 +28,7 @@ namespace MachineSimulator.UVCCamera
                 script.ResetCameraProperties();
             }
 
-            if (Application.isPlaying)
+            if (UnityEngine.Application.isPlaying)
             {
                 DrawBallCandidates(script);
             }
