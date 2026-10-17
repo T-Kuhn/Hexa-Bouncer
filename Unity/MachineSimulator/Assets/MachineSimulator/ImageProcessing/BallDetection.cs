@@ -9,7 +9,7 @@ namespace Unity.MachineSimulator.ImageProcessing
     {
         private List<Vector2Int> _positiveProbePoints;
         private List<Vector2Int> _boarderPixelPositions;
-        private List<(Vector2Int center, float radius)> _detectedObjects;
+        private List<(Vector2Int center, float radius, int outlinePixelCount, float radialDeviation)> _detectedObjects;
         // NOTE: Debug overlay writes recorded during detection and painted afterwards, see BallDataFromPixelBoarders.
         private List<(int index, byte value)> _deferredDebugWrites;
 
@@ -113,7 +113,7 @@ namespace Unity.MachineSimulator.ImageProcessing
         {
             _positiveProbePoints = new List<Vector2Int>(200);
             _boarderPixelPositions = new List<Vector2Int>(20000);
-            _detectedObjects = new List<(Vector2Int center, float radius)>();
+            _detectedObjects = new List<(Vector2Int center, float radius, int outlinePixelCount, float radialDeviation)>();
             _deferredDebugWrites = new List<(int index, byte value)>(20000);
         }
 
@@ -135,6 +135,16 @@ namespace Unity.MachineSimulator.ImageProcessing
                    && b * 100 <= r * c.BallMaxBluePercentOfRed
                    && g * 100 <= r * c.BallMaxGreenPercentOfRed;
         }
+
+        // NOTE: Expected number of traced outline pixels per pixel of radius for a round object, used for
+        //       BallRadiusAndPosition.OutlineLengthRoundness. The outline is traced through 8-connected neighbours, so a
+        //       diagonal step covers sqrt(2) px of circumference but adds only one pixel: a piece of outline at
+        //       angle a (0..45 deg to the nearer axis) holds cos(a) pixels per pixel of length. A circle's
+        //       tangent angle is uniformly distributed, which averages to 2*sqrt(2)/PI pixels per pixel of
+        //       circumference, so a circle of radius r has 2*PI*r * 2*sqrt(2)/PI = 4*sqrt(2)*r outline pixels.
+        //       Verified by running rasterised disks of radius 15..120 px through this very trace: 5.60..5.65
+        //       outline pixels per pixel of measured radius, i.e. OutlineLengthRoundness 0.99..1.00 over the whole range.
+        private const float OutlinePixelsPerRadiusOfCircle = 5.6568542f;
 
         // NOTE: BGR pixels
         // NOTE: Detection has to read an untouched frame: IsBallPixel looks at all three channels, so a
@@ -268,20 +278,40 @@ namespace Unity.MachineSimulator.ImageProcessing
                             accumulatedRadius += dataPoint.radius;
                         }
 
+                        var center = new Vector2(
+                            accumulatedCenter.x / (float) biggestHalf.Count,
+                            accumulatedCenter.y / (float) biggestHalf.Count);
+                        var radius = accumulatedRadius / biggestHalf.Count;
+
+                        // NOTE: Mean distance of the outline pixels from the circle just fitted, see
+                        //       BallRadiusAndPosition.RadialDeviation. Uses the unrounded centre: rounding it to a
+                        //       pixel would alone add up to ~0.3 px of apparent deviation. Mean of absolute values
+                        //       rather than RMS, so a reflection notch in the rim stays a small contribution.
+                        var radialDeviationSum = 0f;
+                        foreach (var boarderPixel in _boarderPixelPositions)
+                        {
+                            radialDeviationSum += Mathf.Abs(Vector2.Distance(center, boarderPixel) - radius);
+                        }
+
+                        // NOTE: _boarderPixelPositions.Count is the number of trace steps around the object,
+                        //       i.e. the outline length in pixels (a pixel visited twice around a thin spike
+                        //       counts twice, which is intended: such an outline is not round).
                         _detectedObjects.Add(
-                            (new Vector2Int(
-                                    Mathf.RoundToInt(accumulatedCenter.x / (float) biggestHalf.Count),
-                                    Mathf.RoundToInt(accumulatedCenter.y / (float) biggestHalf.Count)),
-                                accumulatedRadius / biggestHalf.Count));
+                            (new Vector2Int(Mathf.RoundToInt(center.x), Mathf.RoundToInt(center.y)),
+                                radius,
+                                _boarderPixelPositions.Count,
+                                radialDeviationSum / _boarderPixelPositions.Count));
 
                         break;
                     }
                 }
             }
 
+            // NOTE: Biggest first, but every traced object is returned: the caller (UVCCameraPlugin) picks the
+            //       ball by CircleDeviation after its radius filter, so a size cap here could drop the ball when
+            //       bigger non-ball objects are in the frame.
             var sortedData = _detectedObjects
                 .OrderByDescending(data => data.radius)
-                .Take(3)
                 .ToList();
 
             // NOTE: Detection is done, from here on we only paint the debug overlay.
@@ -320,7 +350,10 @@ namespace Unity.MachineSimulator.ImageProcessing
                 {
                     Radius = data.radius,
                     PositionX = -data.center.x + c.CameraResolutionWidth / 2f,
-                    PositionY = -data.center.y + c.CameraResolutionHeight / 2f
+                    PositionY = -data.center.y + c.CameraResolutionHeight / 2f,
+                    OutlinePixelCount = data.outlinePixelCount,
+                    OutlineLengthRoundness = data.outlinePixelCount / (OutlinePixelsPerRadiusOfCircle * data.radius),
+                    RadialDeviation = data.radialDeviation
                 })
                 .ToList();
         }
@@ -450,5 +483,53 @@ namespace Unity.MachineSimulator.ImageProcessing
         public float Radius;
         public float PositionX;
         public float PositionY;
+
+        // NOTE: Number of pixels the traced outline of the object consists of. Only set by
+        //       BallDataFromPixelBoarders (BallDataFromArea has no outline, so the shape values below stay 0 there).
+        public int OutlinePixelCount;
+
+        // NOTE: First shape measure, sensitive to the boundary texture: OutlinePixelCount divided by the count
+        //       a circle of this Radius would have, so 1 is a perfect circle (see
+        //       BallDetection.OutlinePixelsPerRadiusOfCircle). Measured on synthetic 1280x720 frames run through
+        //       BallDataFromPixelBoarders: plain disk 0.99-1.00, disk with a white reflection notch in its rim
+        //       1.02-1.13, disk cut in half by the image edge 0.90, two merged disks 0.91. Below 1 the outline
+        //       is too short for the radius: motion blur stretching the ball into an ellipse gives 0.97
+        //       (aspect 1.1), 0.93 (1.25), 0.87-0.90 (1.5); rotated rectangles give 0.75-0.81 (the longest
+        //       chord runs corner to corner, the sides are short compared to that circle). Above 1 it is too
+        //       long: a disk with 8 notches 1.28, ragged rims 1.4-3.2. Blind spot: straight edges within
+        //       ~20 deg of the pixel axes are traced with one pixel per pixel of length while a circle averages
+        //       0.9, so an axis-aligned square scores 1.06, a square at 20 deg 1.00, a 3:1 axis-aligned
+        //       rectangle 0.94 and a triangle 1.02, none of which this measure can tell from a ball.
+        public float OutlineLengthRoundness;
+
+        // NOTE: |OutlineLengthRoundness - 1|. Symmetric on purpose: a blurred or edge-clipped ball sits below 1,
+        //       a notched or ragged one above.
+        public float OutlineLengthDeviation => Mathf.Abs(OutlineLengthRoundness - 1f);
+
+        // NOTE: Second shape measure, sensitive to the silhouette: mean over all outline pixels of
+        //       |distance to the centre - Radius|, in pixels. Independent of orientation and of boundary
+        //       texture. Measured relative to the radius (RelativeRadialDeviation): plain disk 0.003-0.022
+        //       (the ~0.35 px digitisation offset weighs more on small radii), interior reflection 0.01, white
+        //       reflection notch in the rim 0.03-0.06, a notch eating half the radius 0.10-0.12, ellipse 0.04
+        //       (aspect 1.1), 0.09 (1.25), 0.15 (1.5), square 0.145 at any rotation, triangle 0.21, rounded
+        //       square 0.23, 3:1 rectangle 0.29, streak 0.42, two merged disks 0.19, disk cut in half by the
+        //       image edge 0.22, disk with 8 notches 0.10. Blind spot: a round-ish patch with a ragged rim
+        //       scores 0.02-0.04 like a lightly notched ball, because small wobbles of the rim average out.
+        public float RadialDeviation;
+
+        // NOTE: RadialDeviation / Radius, so candidates of different sizes compare.
+        public float RelativeRadialDeviation => RadialDeviation / Radius;
+
+        // NOTE: Selection score, 0 is a perfect circle; the candidate with the smallest value is taken as the
+        //       ball (UVCCameraPlugin). The two measures are independent and each covers the other's blind
+        //       spot: the radial term rejects straight-edged and elongated silhouettes that the length term
+        //       rates as round, the length term rejects ragged rims that the radial term averages away.
+        //       Measured: plain ball 0.02-0.03, ball with an interior reflection 0.02, small rim notch 0.05,
+        //       notch eating half the radius 0.16-0.23, blur aspect 1.1 0.07 and 1.25 0.15, ball cut in half
+        //       by the image edge 0.33; square 0.15 (at 20 deg) to 0.39 (45 deg), axis-aligned square 0.21,
+        //       3:1 rectangle 0.35, triangle 0.23, disk with 8 notches 0.38, ragged round-ish patch 1.4-2.2.
+        //       So a clean or lightly notched ball beats every tested non-ball by 3x, while a heavily notched
+        //       or blurred ball is a toss-up against a square and a half-clipped one loses to it.
+        public float CircleDeviation => RelativeRadialDeviation + OutlineLengthDeviation;
     }
 }
