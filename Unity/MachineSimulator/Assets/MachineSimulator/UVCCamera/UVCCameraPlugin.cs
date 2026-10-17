@@ -185,7 +185,7 @@ namespace MachineSimulator.UVCCamera
                     var res = _ballDetection.BallDataFromPixelBoarders(_pixelsFront, 500);
 
                     // NOTE: Ball radius is measured in pixels.
-                    var filteredResults = res.Where(data => data.Radius is > 20 and < 100).ToList();
+                    var filteredResults = res.Where(data => data.Radius is > 20 and < 110).ToList();
 
                     if (filteredResults.Count > 0)
                     {
