@@ -237,6 +237,10 @@
 //     - [X] maybe do a slight screw motion while going up just for funsies?
 
 // ↓ Do this!
+// Analytical tilt control is in: press A to switch to it and P to go back to the PD controller. A new label under "Mode: …"
+// shows Tilt: PD or Tilt: Analytical, and it starts on PD so nothing changes until you press A.
+// It compiles and the maths checks out offline, but I haven't run it in the Unity editor or on the machine.
+
 // - [ ] add some more subtitles (evo)!
 // - [ ] add text scramble animation (evo) to year titles?
 // - [ ] maybe make first "chopstick" subtitle stick around for a bit longer?
