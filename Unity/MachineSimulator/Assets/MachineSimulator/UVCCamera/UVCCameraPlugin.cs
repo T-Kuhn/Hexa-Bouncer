@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -56,6 +57,11 @@ namespace MachineSimulator.UVCCamera
         public Vector2 NewestBallPosition { get; private set; }
         public float TimeStamp { get; private set; }
         public bool IsBallDetected { get; private set; }
+
+        // NOTE: Debug readout shown by UVCCameraPluginEditor: every object of the newest frame that passed the
+        //       radius filter, and the index of the one taken as the ball (-1 when none).
+        public IReadOnlyList<BallRadiusAndPosition> NewestCandidates { get; private set; }
+        public int NewestBallCandidateIndex { get; private set; } = -1;
 
         public void ResetCameraProperties()
         {
@@ -185,17 +191,36 @@ namespace MachineSimulator.UVCCamera
                     var res = _ballDetection.BallDataFromPixelBoarders(_pixelsFront, 500);
 
                     // NOTE: Ball radius is measured in pixels.
-                    var filteredResults = res.Where(data => data.Radius is > 20 and < 100).ToList();
+                    var filteredResults = res.Where(data => data.Radius is > 20 and < 110).ToList();
+                    NewestCandidates = filteredResults;
 
                     if (filteredResults.Count > 0)
                     {
-                        var ball = res[0];
+                        // NOTE: More than one object can pass the radius filter (the ball plus e.g. a brownish
+                        //       surface that slips through the colour gate), and the biggest is not necessarily
+                        //       the ball. The ball is the round one, so take the candidate whose outline deviates
+                        //       least from a circle (CircleDeviation 0, see BallRadiusAndPosition): its radial
+                        //       term rejects wrong silhouettes (rectangles, streaks), its outline-length term
+                        //       rejects ragged rims, so a candidate must be bad at neither. A white reflection
+                        //       cutting into the ball's rim only moves the score a little.
+                        var ballIndex = 0;
+                        for (var i = 1; i < filteredResults.Count; i++)
+                        {
+                            if (filteredResults[i].CircleDeviation < filteredResults[ballIndex].CircleDeviation)
+                            {
+                                ballIndex = i;
+                            }
+                        }
+
+                        var ball = filteredResults[ballIndex];
+                        NewestBallCandidateIndex = ballIndex;
                         NewestBallPosition = new Vector2(ball.PositionX, ball.PositionY);
                         TimeStamp = Time.realtimeSinceStartup;
                         IsBallDetected = true;
                     }
                     else
                     {
+                        NewestBallCandidateIndex = -1;
                         IsBallDetected = false;
                     }
 

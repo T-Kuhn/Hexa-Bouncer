@@ -226,8 +226,7 @@
 // - [X] so if the ball is bouncing and we are pressing up, that specific bounce will end up at a higher height (we are incresing the rest height)
 // - [X] check with virtual machine if it's working correctly or not
 // - [X] check with real machine if it's working correctly or not
-
-// - [ ] We need some interesting ways to juggle the ball.
+// - [X] We need some interesting ways to juggle the ball.
 //     - [X] 150ms move command with 0.2 height
 //     - [X] then smoothly (or suddenly?) change to 225ms move time with 0.23 height
 //     - [X] every second bounce it a hit style
@@ -238,6 +237,14 @@
 //     - [X] maybe do a slight screw motion while going up just for funsies?
 
 // ↓ Do this!
+// - [ ] add some more subtitles (evo)!
+// - [ ] add text scramble animation (evo) to year titles?
+// - [ ] maybe make first "chopstick" subtitle stick around for a bit longer?
+// - [ ] Implement I-component of PID controller to 
+
+// - [ ] 2.5 Minutes of Bouncing
+// - [ ] 2.5 Minutes of Slow-Motion Bouncing 
+// - [ ] thumnbnails
 
 // - [ ] Video footage of (maybe improved?) flex.
 // - [ ] Video footage of bouncing (go through some modes)
