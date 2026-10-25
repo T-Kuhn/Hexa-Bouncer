@@ -23,6 +23,13 @@ namespace MachineSimulator.Controlling
             }
         }
 
+        // NOTE: Samples are never removed when the ball gets lost. So after a detection gap, the window mixes two
+        //       different flights and the velocity is meaningless until the window has been refilled.
+        public bool IsWindowFresh(float maxTimeSpan)
+        {
+            return _samples.Count == _sampleCount && _samples.Last().time - _samples.Peek().time <= maxTimeSpan;
+        }
+
         // NOTE: only y-velocity is adjusted to be closer to real time. The others (velocity along x and z) are not adjusted.
         public Vector3 CalculateRealTimeVelocity()
         {

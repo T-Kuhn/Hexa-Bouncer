@@ -17,6 +17,7 @@ namespace MachineSimulator.Controlling
         [SerializeField] private MachineModel.MachineModel _machineModel;
         [SerializeField] private RealMachine _realMachine;
         [SerializeField] private ModeSwitcher _modeSwitcher;
+        [SerializeField] private TiltControlSwitcher _tiltControlSwitcher;
         [SerializeField] private RestHeightController _restHeightController;
         private float _appliedRestIncrease;
 
@@ -93,6 +94,11 @@ namespace MachineSimulator.Controlling
 
         private readonly PID _zAxisPid = new PID();
         private readonly PID _xAxisPid = new PID();
+        private readonly AnalyticalTiltController _analyticalTiltController = new AnalyticalTiltController();
+
+        // NOTE: The velocity regression window holds 10 samples, which is ~80ms at 120 FPS (and still below this at
+        //       60 FPS). A longer window means the ball got lost in between, so the velocity can't be trusted.
+        private const float MaxVelocityWindowTimeSpan = 0.25f;
 
         private BounceProfile? GetNextBounceProfile(BallHandlingMode currentMode, bool isFastBounce, int tinyBounceStepState)
         {
@@ -180,10 +186,19 @@ namespace MachineSimulator.Controlling
                 {
                     // NOTE: ball movement along x axis is driving PID for correction around Z axis
                     //       ball movement along z axis is driving PID for correction around X axis
-                    // NOTE: ballPosition stream is plate-relative (cameras are attached to the HexaPlate).
-                    //       Add the plate's world x/z to recover the absolute ball position for the PID.
-                    var zCorrection = _xAxisPid.Update(_ballPosition.Value.x);
-                    var xCorrection = -_zAxisPid.Update(_ballPosition.Value.z);
+                    // NOTE: ballPosition is in world space: the cameras are attached to the virtual HexaPlate, which plays
+                    //       back every move in sync with the real one, so the triangulated position needs no plate offset.
+                    // NOTE: The PIDs get updated on every bounce, even while the analytical controller is active. Their
+                    //       derivative term uses the position change since the last bounce, which would be stale otherwise.
+                    var pdZCorrection = _xAxisPid.Update(_ballPosition.Value.x);
+                    var pdXCorrection = -_zAxisPid.Update(_ballPosition.Value.z);
+
+                    // NOTE: Falls back to the PD output for this bounce if the analytical prediction isn't usable.
+                    var analyticalTilt = _tiltControlSwitcher.CurrentTiltControl == TiltControlType.Analytical
+                                         && _ballVelocityRegression.IsWindowFresh(MaxVelocityWindowTimeSpan)
+                        ? _analyticalTiltController.CalculateTilt(_ballPosition.Value, _realTimeVelocity, timeUntilNextImpact.Value, Vector2.zero)
+                        : null;
+                    var (zCorrection, xCorrection) = analyticalTilt ?? (pdZCorrection, pdXCorrection);
 
 
                     switch (_modeSwitcher.CurrentMode)
