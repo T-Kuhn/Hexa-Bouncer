@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 705507994}
-  m_IndirectSpecularColor: {r: 0.18028378, g: 0.22571412, b: 0.30692285, a: 1}
+  m_IndirectSpecularColor: {r: 0, g: 0, b: 0, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -2800,6 +2800,7 @@ MonoBehaviour:
   _uvcOne: {fileID: 1203267605}
   _uvcTwo: {fileID: 239239970}
   _modeSwitcher: {fileID: 1808984088}
+  _tiltControlSwitcher: {fileID: 1808984090}
   _machineModel: {fileID: 1972121948}
 --- !u!114 &531562922
 MonoBehaviour:
@@ -8912,6 +8913,7 @@ GameObject:
   - component: {fileID: 1808984086}
   - component: {fileID: 1808984088}
   - component: {fileID: 1808984089}
+  - component: {fileID: 1808984090}
   m_Layer: 0
   m_Name: Controller
   m_TagString: Untagged
@@ -8935,6 +8937,7 @@ MonoBehaviour:
   _machineModel: {fileID: 1972121948}
   _realMachine: {fileID: 1065643978}
   _modeSwitcher: {fileID: 1808984088}
+  _tiltControlSwitcher: {fileID: 1808984090}
   _restHeightController: {fileID: 1808984089}
   _cameOne: {fileID: 1203267605}
   _camTwo: {fileID: 239239970}
@@ -8983,6 +8986,18 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43acda5c958ceab4b811b72420794353, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &1808984090
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1808984085}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f17a3a3494a1d29438c825e7c3e55e18, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
 --- !u!1 &1820636445

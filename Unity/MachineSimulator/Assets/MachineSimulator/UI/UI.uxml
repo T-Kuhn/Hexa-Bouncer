@@ -42,6 +42,7 @@
             <ui:VisualElement name="MidTopUI" style="flex-direction: row;">
                 <ui:VisualElement name="CurrentModeContainer" style="width: 300px;">
                     <ui:Label text="Mode: xxx" display-tooltip-when-elided="true" name="CurrentModeLabel" style="font-size: 24px; color: rgb(255, 255, 255);" />
+                    <ui:Label text="Tilt: xxx" display-tooltip-when-elided="true" name="TiltControlLabel" style="font-size: 24px; color: rgb(255, 255, 255);" />
                 </ui:VisualElement>
                 <ui:VisualElement name="CamOneContainer" style="width: 210px;">
                     <ui:Label text="Cam1: xxx yyms" display-tooltip-when-elided="true" name="CamOneCounterLabel" style="font-size: 24px; color: rgb(255, 255, 255);" />

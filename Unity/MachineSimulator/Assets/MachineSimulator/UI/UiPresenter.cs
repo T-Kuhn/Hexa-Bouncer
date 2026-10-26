@@ -15,6 +15,7 @@ namespace MachineSimulator.UI
         [SerializeField] private UVCCameraPlugin _uvcOne;
         [SerializeField] private UVCCameraPlugin _uvcTwo;
         [SerializeField] private ModeSwitcher _modeSwitcher;
+        [SerializeField] private TiltControlSwitcher _tiltControlSwitcher;
         [SerializeField] private MachineModel.MachineModel _machineModel;
 
         private float _currentCommandTime = 3f;
@@ -112,6 +113,7 @@ namespace MachineSimulator.UI
             _view.SetTextOnCamTwoCounterLabelTo($"camTwo: {countTwo}, {timeTwo}ms");
 
             _view.SetTextOnCurrentModeLabelTo($"Mode: {_modeSwitcher.CurrentMode}");
+            _view.SetTextOnTiltControlLabelTo($"Tilt: {_tiltControlSwitcher.CurrentTiltControl}");
 
             var restHeight = _machineModel.HexaPlateMover.RestPosition.y;
             _view.SetTextOnRestHeightLabelTo($"RestH: {restHeight:F4} m");
